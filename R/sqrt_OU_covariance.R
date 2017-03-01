@@ -11,7 +11,6 @@
 #'@param root.model ancestral state model at the root.
 #'@param check.order logical. If TRUE, the order will be checked to be in postorder traversal.
 #'@param check.ultrametric logical. If TRUE, the tree will be checked to ultrametric.
-#'@param normalize.tree.height logical. If TRUE, it class normalize_tree function after transf.branch.lengths.
 #'
 #'@return 
 #' \item{sqrtInvSigma}{inverse square root of the phylogenetic covariance matrix.}
@@ -44,7 +43,7 @@
 #' theta <- eModel$intercept + l1ou:::convert_shifts2regions(eModel$tree,
 #'                              eModel$shift.configuration, eModel$shift.values)
 #' REf <- sqrt_OU_covariance(eModel$tree, alpha=eModel$alpha,
-#'                                          root.model = "OUfixedRoot",normalize.tree.height=TRUE,
+#'                                          root.model = "OUfixedRoot",
 #'                                          check.order=FALSE, check.ultrametric=FALSE)
 #'  covInverseSqrtf  <- t(REf$sqrtInvSigma)
 #'  covSqrtf   <- REf$sqrtSigma
@@ -66,7 +65,7 @@
 #'
 #'@export
 sqrt_OU_covariance <- function(tree, alpha=0, root.model = c("OUfixedRoot", "OUrandomRoot"), 
-                               check.order=TRUE, check.ultrametric=TRUE, normalize.tree.height=FALSE){
+                               check.order=TRUE, check.ultrametric=TRUE){
     if( ! is.binary.tree(tree) ){
         tree         <- multi2di(tree, random=FALSE)
         check.order  <- TRUE 
@@ -89,9 +88,6 @@ sqrt_OU_covariance <- function(tree, alpha=0, root.model = c("OUfixedRoot", "OUr
             }
         }
         tre <- transf.branch.lengths(tree, model=root.model, parameters=list(alpha=alpha), check.pruningwise=F)$tree
-	if(normalize.tree.height){
-		tre <- normalize_tree(tre)
-	}
     }else{
         tre <- tree
         if( root.model == "OUrandomRoot"){
@@ -105,12 +101,7 @@ sqrt_OU_covariance <- function(tree, alpha=0, root.model = c("OUfixedRoot", "OUr
     
     if ( alpha > 0){
       # refactor by 2alpha, because this is NOT done in trans.branch.length
-      coe = sqrt(2*alpha) # good for "OUrandomRoot"
-      if (root.model == "OUfixedRoot"){
-        # below: assumes tree already in pruningwise = post order
-        treeheight = pruningwise.distFromRoot(tre)[1] # Distance taxon 1 to root: because ultrametric tree
-        coe = sqrt((2*alpha)/(1-exp(-2*alpha*treeheight)))
-      }
+      coe = sqrt(2*alpha)
       result$sqrtSigma    = result$sqrtSigma / coe
       result$sqrtInvSigma = result$sqrtInvSigma * coe
     }
