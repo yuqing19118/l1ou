@@ -11,6 +11,7 @@
 #'@param root.model ancestral state model at the root.
 #'@param check.order logical. If TRUE, the order will be checked to be in postorder traversal.
 #'@param check.ultrametric logical. If TRUE, the tree will be checked to ultrametric.
+#'@param normalize.tree.height logical. If TRUE, it class normalize_tree function after transf.branch.lengths.
 #'
 #'@return 
 #' \item{sqrtInvSigma}{inverse square root of the phylogenetic covariance matrix.}
@@ -24,9 +25,40 @@
 #' dimnames(Sigma) <- NULL
 #' all.equal(res$sqrtSigma %*% t(res$sqrtSigma), Sigma) # TRUE
 #' all.equal(res$sqrtInvSigma %*% t(res$sqrtInvSigma), solve(Sigma)) # TRUE
+#' 
+#' 
+#' ##Here's the example from "Eric A. Stone. 2011." (See references)
+#'
+#' tr <-  read.tree(text="((((Homo:.21,Pongo:.21):.28,Macaca:.49):.13,Ateles:.62):.38,Galago:1);") 
+#' RE <- sqrt_OU_covariance(tr) 
+#' B <- round( RE$sqrtSigma, digits=3)
+#' D <- round( RE$sqrtInvSigma, digits=3)
+#' print(B)
+#' print(D)
+#' 
+#' 
+#' ##Here is the examples on how to get the contrasts using sqrt_OU_covariance
+#' data(lizard.tree, lizard.traits)
+#' lizard <- adjust_data(lizard.tree, lizard.traits[,1])
+#' eModel <- estimate_shift_configuration(lizard$tree, lizard$Y)
+#' theta <- eModel$intercept + l1ou:::convert_shifts2regions(eModel$tree,
+#'                              eModel$shift.configuration, eModel$shift.values)
+#' REf <- sqrt_OU_covariance(eModel$tree, alpha=eModel$alpha,
+#'                                          root.model = "OUfixedRoot",normalize.tree.height=TRUE,
+#'                                          check.order=FALSE, check.ultrametric=FALSE)
+#'  covInverseSqrtf  <- t(REf$sqrtInvSigma)
+#'  covSqrtf   <- REf$sqrtSigma
+#' # `covInverseSqrtf` represents the transpose of square root of  the inverse matrix of covariance for FixedRoot model.
+#' # `covSqrtf` represents the square root of the covariance matrix for FixedRoot model.
+#'
+#'  Y  <- rTraitCont(eModel$tree, "OU", theta=theta, 
+#'                                      alpha=eModel$alpha, 
+#'                                      sigma=eModel$sigma, root.value=eModel$intercept)
+#'  contrast    <-  covInverseSqrtf%*%(Y - eModel$mu)
+#'  
 #'
 #'@references
-#'Mohammad Khabbazian, Ricardo Kriebel, Karl Rohe, and Cécile Ané (2016).
+#' Mohammad Khabbazian, Ricardo Kriebel, Karl Rohe, and Cécile Ané (2016).
 #' "Fast and accurate detection of evolutionary shifts in Ornstein-Uhlenbeck models".
 #' Methods in Ecology and Evolution. doi:10.1111/2041-210X.12534
 #'
@@ -34,9 +66,11 @@
 #'
 #'@export
 sqrt_OU_covariance <- function(tree, alpha=0, root.model = c("OUfixedRoot", "OUrandomRoot"), 
-                               check.order=TRUE, check.ultrametric=TRUE){
-
-    tree       <- multi2di(tree, random=FALSE)
+                               check.order=TRUE, check.ultrametric=TRUE, normalize.tree.height=FALSE){
+    if( ! is.binary.tree(tree) ){
+        tree         <- multi2di(tree, random=FALSE)
+        check.order  <- TRUE 
+    }
     root.model <- match.arg(root.model) 
     ##NOTE: the function assumes reordering does not change the order of the 
     ##nodes and it just change the order of edges, so that column i in each 
@@ -54,8 +88,10 @@ sqrt_OU_covariance <- function(tree, alpha=0, root.model = c("OUfixedRoot", "OUr
                 stop("alpha>0, the tree has to be ultrametric") 
             }
         }
-        tre <- transf.branch.lengths(tree, model=root.model, parameters=list(alpha=alpha))$tree
-        tre <- normalize_tree(tre)
+        tre <- transf.branch.lengths(tree, model=root.model, parameters=list(alpha=alpha), check.pruningwise=F)$tree
+	if(normalize.tree.height){
+		tre <- normalize_tree(tre)
+	}
     }else{
         tre <- tree
         if( root.model == "OUrandomRoot"){
@@ -65,7 +101,19 @@ sqrt_OU_covariance <- function(tree, alpha=0, root.model = c("OUfixedRoot", "OUr
 
     my.edge.list <- cbind(tre$edge-1, tre$edge.length) 
     tre$root.edge <- ifelse(is.null(tre$root.edge), 0, tre$root.edge)
-    result       <- cmp_sqrt_OU_covariance(my.edge.list, length(tree$tip.label), tre$root.edge)
+    result       <- cmp_sqrt_OU_covariance(my.edge.list, length(tre$tip.label), tre$root.edge)
+    
+    if ( alpha > 0){
+      # refactor by 2alpha, because this is NOT done in trans.branch.length
+      coe = sqrt(2*alpha) # good for "OUrandomRoot"
+      if (root.model == "OUfixedRoot"){
+        # below: assumes tree already in pruningwise = post order
+        treeheight = pruningwise.distFromRoot(tre)[1] # Distance taxon 1 to root: because ultrametric tree
+        coe = sqrt((2*alpha)/(1-exp(-2*alpha*treeheight)))
+      }
+      result$sqrtSigma    = result$sqrtSigma / coe
+      result$sqrtInvSigma = result$sqrtInvSigma * coe
+    }
     return(result)
 }
 
